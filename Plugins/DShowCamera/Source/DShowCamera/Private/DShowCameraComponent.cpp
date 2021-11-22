@@ -569,8 +569,9 @@ GUID DSCamera::GetCapturePreferredMediaType(int32 Width , int32 Height )
 	mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_YUY2, L"YUY2"));
 	mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_YV12, L"YV12"));
 	mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_I420, L"I420"));
-	//mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_RGB32, L"RGB32"));
-	//mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_RGB24, L"RGB24"));	
+	mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_RGB32, L"RGB32"));
+	mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_RGB24, L"RGB24"));	
+	mediaSubTypeList.push_back(std::make_pair(MEDIASUBTYPE_ARGB32, L"ARGB32"));
 
 	for (size_t index = 0; index < mediaSubTypeList.size(); ++index)
 	{
@@ -628,6 +629,12 @@ void DSCamera::FreeMediaType(std::vector<AM_MEDIA_TYPE*>& listType)
 
 void DSCamera::ReceiveDataCallBack(BYTE* pBuffer, long BufferLen, int width, int height)
 {
+	static UUID* hdycUUid=nullptr;
+	if (!hdycUUid)
+	{
+		hdycUUid = new UUID;
+		UuidFromStringA((RPC_CSTR)"43594448-0000-0010-8000-00AA00389B71", hdycUUid);
+	}
 
 	uint32_t format = 0;
 	if (ExpectedMediaType == MEDIASUBTYPE_YV12)
@@ -646,6 +653,10 @@ void DSCamera::ReceiveDataCallBack(BYTE* pBuffer, long BufferLen, int width, int
 	{
 		format = libyuv::FOURCC_I420;
 	}
+	else if (expectedMediaType == *hdycUUid)
+	{
+		format = libyuv::FOURCC_UYVY;
+	}
 
 	SetBuffer(width * height * 4);
 	if (format != 0)
@@ -654,6 +665,43 @@ void DSCamera::ReceiveDataCallBack(BYTE* pBuffer, long BufferLen, int width, int
 			0, 0, width, height,
 			width, height,
 			libyuv::kRotate0, format);
+	}
+	else if (expectedMediaType == MEDIASUBTYPE_RGB24)
+	{
+		int srcPitch = width * 3;
+		unsigned char* pSrcStart = (unsigned char*)pBuffer + (height - 1) * srcPitch;
+		int rowPitch = width * 4;
+		unsigned char* pDest = (unsigned char*)Buffer;
+		for (int i = 0; i < height; i++)
+		{
+			unsigned char* pWrite = pDest;
+			unsigned char* pRead = pSrcStart;
+			for (int j = 0; j < width; j++)
+			{
+				*pWrite++ = *pRead++;
+				*pWrite++ = *pRead++;
+				*pWrite++ = *pRead++;
+				*pWrite++ = 255;
+			}
+
+			pSrcStart = pSrcStart - srcPitch;
+			pDest = pDest + rowPitch;
+		}
+	}
+	else if (expectedMediaType == MEDIASUBTYPE_RGB32|| expectedMediaType == MEDIASUBTYPE_ARGB32)
+	{		
+		int srcPitch = width * 4;
+		int targetPitch = width * 4;
+		LPBYTE src = (LPBYTE)pBuffer + (height - 1) * srcPitch;
+		LPBYTE dst = (LPBYTE)Buffer;
+		{
+			for (int i = 0; i < height; i++)
+			{
+				memcpy(dst, src, targetPitch);
+				src -= srcPitch;
+				dst += targetPitch;
+			}
+		}
 	}
 	else
 	{
